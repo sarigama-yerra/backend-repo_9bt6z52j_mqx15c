@@ -1,48 +1,81 @@
 """
-Database Schemas
+Database Schemas for Maso Project
 
-Define your MongoDB collection schemas here using Pydantic models.
-These schemas are used for data validation in your application.
+Each Pydantic model represents a MongoDB collection. The collection name is the
+lowercased class name (e.g., Order -> "order").
 
-Each Pydantic model represents a collection in your database.
-Model name is converted to lowercase for the collection name:
-- User -> "user" collection
-- Product -> "product" collection
-- BlogPost -> "blogs" collection
+These schemas are read by the Flames database viewer and can also be used for
+request validation in the API.
 """
-
+from typing import List, Optional, Literal
 from pydantic import BaseModel, Field
-from typing import Optional
+from datetime import datetime
 
-# Example schemas (replace with your own):
 
-class User(BaseModel):
-    """
-    Users collection schema
-    Collection name: "user" (lowercase of class name)
-    """
-    name: str = Field(..., description="Full name")
-    email: str = Field(..., description="Email address")
-    address: str = Field(..., description="Address")
-    age: Optional[int] = Field(None, ge=0, le=120, description="Age in years")
-    is_active: bool = Field(True, description="Whether user is active")
+class Machine(BaseModel):
+    """Machines available on the shop floor"""
+    name: str = Field(..., description="Machine name or number")
+    group: Optional[str] = Field(None, description="Group/line this machine belongs to")
+    type: Optional[str] = Field(None, description="Machine type (e.g., Laser, Press Brake, Punch)")
+    status: Literal["idle", "running", "maintenance", "offline"] = Field(
+        "idle", description="Current machine status"
+    )
 
-class Product(BaseModel):
-    """
-    Products collection schema
-    Collection name: "product" (lowercase of class name)
-    """
-    title: str = Field(..., description="Product title")
-    description: Optional[str] = Field(None, description="Product description")
-    price: float = Field(..., ge=0, description="Price in dollars")
-    category: str = Field(..., description="Product category")
-    in_stock: bool = Field(True, description="Whether product is in stock")
 
-# Add your own schemas here:
-# --------------------------------------------------
+class OrderItem(BaseModel):
+    sku: str = Field(..., description="Part number or SKU")
+    description: Optional[str] = Field(None, description="Part description")
+    quantity: int = Field(..., ge=1, description="Quantity required")
+    unit_price: float = Field(0, ge=0, description="Unit price for invoicing")
 
-# Note: The Flames database viewer will automatically:
-# 1. Read these schemas from GET /schema endpoint
-# 2. Use them for document validation when creating/editing
-# 3. Handle all database operations (CRUD) directly
-# 4. You don't need to create any database endpoints!
+
+class Order(BaseModel):
+    """Production order raised by managers"""
+    customer: str = Field(..., description="Customer name")
+    po_number: Optional[str] = Field(None, description="Customer purchase order number")
+    items: List[OrderItem] = Field(default_factory=list, description="List of items in the order")
+    priority: Literal["low", "normal", "high", "urgent"] = Field("normal")
+    due_date: Optional[datetime] = Field(None, description="Requested delivery date")
+    notes: Optional[str] = Field(None, description="Additional instructions")
+    status: Literal["draft", "scheduled", "in_progress", "completed", "invoiced", "cancelled"] = Field(
+        "draft", description="Overall order status"
+    )
+
+
+class Task(BaseModel):
+    """Executable task linked to an order and optionally a machine"""
+    order_id: str = Field(..., description="Linked order id")
+    name: str = Field(..., description="Task name, e.g., Laser Cut, Bend, Weld")
+    machine_id: Optional[str] = Field(None, description="Assigned machine id")
+    group: Optional[str] = Field(None, description="Assigned machine group/line")
+    assignee: Optional[str] = Field(None, description="Employee name or id")
+    status: Literal["queued", "assigned", "in_progress", "paused", "done", "rejected"] = Field(
+        "queued", description="Task progress state"
+    )
+    estimated_minutes: Optional[int] = Field(None, ge=0)
+    actual_minutes: Optional[int] = Field(None, ge=0)
+    notes: Optional[str] = None
+
+
+class Attachment(BaseModel):
+    """Attachment metadata for drawings, DXF, PDFs. We store URL/filename only."""
+    order_id: str = Field(..., description="Linked order id")
+    filename: str = Field(..., description="Original filename")
+    url: Optional[str] = Field(None, description="Public URL if uploaded to external storage")
+    mime_type: Optional[str] = None
+    size_bytes: Optional[int] = Field(None, ge=0)
+
+
+class InvoiceItem(BaseModel):
+    description: str
+    quantity: int = Field(..., ge=1)
+    unit_price: float = Field(..., ge=0)
+
+
+class Invoice(BaseModel):
+    order_id: str = Field(..., description="Order id this invoice is for")
+    items: List[InvoiceItem] = Field(default_factory=list)
+    subtotal: float = Field(0, ge=0)
+    tax_rate: float = Field(0.0, ge=0, le=1.0, description="Fraction, e.g., 0.18 for 18%")
+    total: float = Field(0, ge=0)
+    notes: Optional[str] = None
